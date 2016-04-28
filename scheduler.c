@@ -1,281 +1,255 @@
-#include <ctype.h>
-#include <errno.h> // Needed by errno
-#include <glob.h> // Needed by glob()
-#include <signal.h>
+/*
+  Name: Li Wing Fai
+  SID: 1155053870
+  Last modify date: 2016-03-16
+*/
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/times.h>
-#include <sys/wait.h>
 #include <unistd.h>
+#include <string.h>
+#include <limits.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <glob.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/times.h>
+#include <signal.h>
 
 pid_t pid;
-void alrmHandler(int signal) {
-    kill(pid,SIGTERM);
+void alrmHandler(int signal){
+    kill(pid, SIGTERM);
 }
 
 pid_t pids[10][2];
-void alrmHandler_p(int signal){
+void alrmHandler2(int signal){
     pid_t myPid = getpid();
-    // printf("myPid: %d\n", myPid);
-
     // Searching for monitor pid
     int i;
-    for(i = 0; i < 10; i++) {
-        // printf("pids[%d][1]: %d\n", i, pids[i][0]);
-        if(pids[i][0] == myPid) {
-            // printf("kill myPid: %d\n", pids[i][0]);
-            kill(pids[i][1],SIGTERM);
+    for(i=0; i<10; i++){
+        if(pids[i][0] == myPid){
+            kill(pids[i][1], SIGTERM);
             break;
         }
     }
 }
 
 int main(int argc, char *argv[]) {
+    char* input1 = argv[1];
+    char* input2 = argv[2];
+    if(strcmp(input1, "FIFO") == 0){
+        signal(SIGALRM, alrmHandler);
+        clock_t startTime, endTime;
+        struct tms cpuTime;
+        double ticks_per_sec = (double)sysconf(_SC_CLK_TCK);
+        int i=0, j=0;
 
-    // printf("input: %s %s\n", argv[1], argv[2]);
+        FILE *fp;
+        char buff[255];
+        fp = fopen(input2, "r");
 
-    glob_t globbuf;
-    globbuf.gl_offs = 1;
-    clock_t startTime, endTime;
-    struct tms cpuTime;
-    double ticks_per_sec = (double)sysconf(_SC_CLK_TCK);
-    char line[256];
-    char const* const fileName = argv[2];
-    FILE* file = fopen(fileName, "r");
-    char deli[] = "\t";
-    char deli2[] = " ";
-
-    if (strcmp(argv[1], "FIFO") == 0 ) {
-        // printf("In FIFO mode\n\n");
-        signal(SIGALRM,alrmHandler);
-
-        int process_number = 0;
-        while (fgets(line, sizeof(line), file)) {
-            process_number++;
-        }
-        fclose(file);
-        // printf("Process Number: %d\n\n", process_number);
-        file = fopen(fileName, "r");
-
-        while ((fgets(line, sizeof(line), file)) != NULL) {
-
-            line[strlen(line)-1] = '\0';
-            char *token2 = strtok(line, deli);
-            // printf("%s\n", token2);
-            char *dur = strtok(NULL, deli);
-            // printf("dur: %s\n", dur);
-            char **argList = (char**) malloc(sizeof(char*) * 255);
-            argList[0] = (char*)malloc(sizeof(char));
-            argList[0] = strtok(token2, deli2);
-
-
-
-            unsigned int duration;
-            if ( isdigit(dur[0]) ) {
-                duration = atoi(dur);
-                // printf("+ve Duration: %u\n", duration);
-            } else if (strcmp(dur, "-1") == 0) {
-                // printf("Negative token: %s\n", dur);
+        while(fgets(buff, 255, (FILE*)fp)!=NULL){
+            buff[strlen(buff)-1]='\0';
+            char *line = strtok(buff, "\t");
+            char *command = line;
+            printf("%s\n", command);
+            line = strtok(NULL, "\t");
+            int duration=0;
+            if(strcmp(line, "-1") == 0){
                 duration = -1;
-                // printf("-ve Duration: %u\n", duration);
+            }
+            for(i=0; i<strlen(line); i++){
+                // translate the time from string to intger
+                duration = duration * 10 + (line[i] - '0');
             }
 
-            int i = 1;
-            int only_one = 0;
-            for(i = 1; i < 255; i++) {
-                argList[i] = (char*) malloc(sizeof(char*) * 255);
-                char *tmp = strtok(NULL,deli2);
-                // printf("tmp: %s\n", tmp);
-                if (tmp == NULL) {
-                    // printf("break\n");
-                    argList[i] = NULL;
-                    break;
-                }
-                token2 = tmp;
-                if (token2 != NULL) {
-                    strcpy(argList[i], token2);
-                } else {
-                    argList[i] = NULL;
-                }
-            }
-
-            int globCount = 0;
-            int loopCount = 1;
+            char *token = strtok(command, " ");
 
             setenv("PATH","/bin:/usr/bin:.", 1);
 
             startTime = times(&cpuTime);
+            if(!(pid = fork())) {
+                char **argList = (char**) malloc(sizeof(char*) * 255);
+                argList[0] = (char*)malloc(sizeof(char) * 255);
+                strcpy(argList[0], token);
 
-            if( !(pid = fork()) ) {
-                if(argList[1] != NULL) {
+                for(i=1; i<255; i++){
+                    argList[i] = (char*)malloc(sizeof(char) * 255);
+                    token = strtok(NULL, " ");
+                    if(token != NULL){
+                        strcpy(argList[i], token);
+                    }
+                    else {
+                        argList[i] = NULL;
+                    }
+                }
+
+                if(argList[1] != NULL){
+                    glob_t globbuf;
+                    globbuf.gl_offs = 1;
                     glob(argList[1], GLOB_DOOFFS | GLOB_NOCHECK, NULL, &globbuf);
-                    for (i = 2; i < 255; i++) {
+                    for(i=2; i<255; i++){
+                        if(argList[i] != NULL)
                             glob(argList[i], GLOB_DOOFFS | GLOB_NOCHECK | GLOB_APPEND, NULL, &globbuf);
-                        }
-                    // printf("%s\n", argList[0]);
+                    }
+
                     globbuf.gl_pathv[0] = argList[0];
-                    execvp(globbuf.gl_pathv[0],globbuf.gl_pathv);
-                    perror("error:");
-                } else {
+                    execvp(globbuf.gl_pathv[0], globbuf.gl_pathv);
+                }
+                else{
                     execvp(*argList, argList);
-                    // printf("[%s]\n",*argList);
-                    perror("error:");
-                    exit(0);
                 }
-            } else {
-                // printf("Duration:%u\n", duration);
-                if (duration != -1) {
-                    alarm(duration);
-                }
+
+                if(errno == ENOENT)
+                    printf("%s:  command not found\n", command);
+                else
+                    printf("[%s]:  unknown error\n", command);
+                exit(0);
+            }
+
+            else{
+                alarm(duration);
                 wait(NULL);
             }
-
             endTime = times(&cpuTime);
+
             printf("<<Process %d>>\n", pid);
-            printf("time elapsed: %.4f\n",(endTime- startTime)/ticks_per_sec);
-            printf("user time: %.4f\n",cpuTime.tms_cutime/ticks_per_sec);
-            printf("system time: %.4f\n\n",cpuTime.tms_cstime/ticks_per_sec);
+            printf("Time Elapsed: %.4f\n", (endTime-startTime)/ticks_per_sec);
+            printf("user time: %.4f\n", cpuTime.tms_cutime/ticks_per_sec);
+            printf("system time: %.4f\n", cpuTime.tms_cstime/ticks_per_sec);
+            printf("\n\n");
         }
-    } else if(strcmp(argv[1], "PARA") == 0) {
+        fclose(fp);
+    }
 
-        // printf("In Parallel mode\n");
-        int process_number = 0;
 
-        while (fgets(line, sizeof(line), file)) {
-            process_number++;
-        }
-        fclose(file);
-        // printf("Process Number: %d\n\n", process_number);
-        file = fopen(fileName, "r");
+    if(strcmp(input1, "PARA") == 0){
+        //signal(SIGALRM, alrmHandler2);
+        clock_t startTime, endTime;
+        struct tms cpuTime;
+        double ticks_per_sec = (double)sysconf(_SC_CLK_TCK);
+        int i=0, j=0;
 
-        int duration[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        char **argList = (char**) malloc(sizeof(char*) * 255);
+        FILE *fp;
+        char buff[255];
+        fp = fopen(input2, "r");
+        char **line=(char**) malloc(sizeof(char*) * 255);
+        char **command=(char**) malloc(sizeof(char*) * 255);
+        char **token=(char**) malloc(sizeof(char*) * 255);
+        int duration[10]={0,0,0,0,0,0,0,0,0,0};
+        int cnt = 0;
 
-        int i = 0;
-        int j = 0;
-        while ((fgets(line, sizeof(line), file)) != NULL) {
-            line[strlen(line)-1] = '\0';
+        while(fgets(buff, 255, (FILE*)fp)!=NULL){
+            buff[strlen(buff)-1]='\0';
+            line[i] = (char*)malloc(sizeof(char) * 255);
+            strcpy(line[i], strtok(buff, "\t"));
+            command[i] = (char*)malloc(sizeof(char) * 255);
+            strcpy(command[i], line[i]);
+            line[i] = strtok(NULL, "\t");
 
-            // printf("Line: %s\n", line);
-            char *token2 = strtok(line, deli);
-            // printf("token2: %s\n", token2);
-            char *dur = strtok(NULL, deli);
-            // printf("dur: %s\n", dur);
-
-            argList[i] = (char*)malloc(sizeof(char));
-            strcpy(argList[i], token2);
-            // printf("argList[%d]: %s\n", i, argList[i]);
-            // printf("argList[%d]: %s\n", i, argList[i]);
-
-            // for(j = 0; j < strlen(argList[i]); j++) {
-            //     printf("argList[%d][%d]: %c\n", i, j, argList[i][j]);
-            // }
-            // printf("\n");
-
-            if ( isdigit(dur[0]) ) {
-                duration[i] = atoi(dur);
-                // printf("+ve Duration: %u\n", duration);
-            } else if (strcmp(dur, "-1") == 0) {
-                // printf("Negative token: %s\n", dur);
+            if(strcmp(line[i], "-1") == 0){
                 duration[i] = -1;
-                // printf("-ve Duration: %u\n", duration);
             }
-            i++;
+            else{
+                int j;
+                for(j=0; j<strlen(line[i]); j++){
+                    // translate the time from string to intger
+                    duration[i] = duration[i] * 10 + (line[i][j] - '0');
+                }
+            }
+            i++, cnt++;
         }
 
-        for(j = 0; j < process_number; j++) {
-        // Fork 3 monitors
+        /*
+        printf("%d\n", cnt);
+        printf("%s\n", input2);
+        for(i=0;i<cnt;i++){
+            printf("command[%d]: %s\n", i, command[i]);
+            //printf("token[%d]: %s\n", i, token[i]);
+            printf("duration[%d]: %d\n", i, duration[i]);
+        }
+        */
 
-            if(!(pids[j][0] = fork())) {
+        for(j=0; j<cnt; j++){
+            // Fork 3 monitors
+            if(!(pids[j][0] = fork())){
                 /* Monitor Process*/
-                // printf("In Monitor process\n");
-                signal(SIGALRM,alrmHandler_p);
+                signal(SIGALRM, alrmHandler2);
                 pids[j][0] = getpid();
-
-                signal(SIGALRM,alrmHandler_p);
+                //printf("in fork(),pids[%d][0] is %d\n", j, pids[j][0]);
+                //printf("%s\n", command[j]);
+                token[j] = (char*)malloc(sizeof(char) * 255);
+                strcpy(token[j], strtok(command[j], " "));
                 setenv("PATH","/bin:/usr/bin:.", 1);
-
                 startTime = times(&cpuTime);
-                if(! (pids[j][1] = fork())) {
-                /* Job Process */
-                    // printf("In job process\n");
+                if(! (pids[j][1] = fork())){
+                    /* Job Process */
                     pids[j][1] = getpid();
                     // Doing Jobs
-                    int k;
-                    int h = 0;
-                    // printf("leng: %lu\n", strlen(argList[j]));
-                    for(k = 0; k < strlen(argList[j]); k++) {
-                        // printf("1-argList[%d]: %s\n",j, argList[j]);
-                        char **argList2 = (char**) malloc(sizeof(char*) * 255);
-                        argList2[0] = (char*)malloc(sizeof(char));
-                        argList2[0] = strtok(argList[j], deli2);
+                    char **argList = (char**) malloc(sizeof(char*) * 255);
+                    argList[0] = (char*)malloc(sizeof(char) * 255);
+                    strcpy(argList[0], token[j]);
 
-                        for(i = 1; i < 255; i++) {
-                            argList2[i] = (char*) malloc(sizeof(char*) * 255);
-                            char *tmp = strtok(NULL,deli2);
-                            // printf("tmp: %s\n", tmp);
-                            if (tmp == NULL) {
-                                // printf("break\n");
-                                argList2[i] = NULL;
-                                break;
-                            }
-                            argList[j] = tmp;
-                            // printf("i=%d - j=%d\n", i, j);
-
-                            if (argList[j] != NULL) {
-                                strcpy(argList2[i], argList[j]);
-                                // printf("2-argList[%d]: %s\n", j, argList[j]);
-                                // printf("2-argList2[%d]: %s\n", i, argList2[i]);
-                                // argList2[i] = argList[j];
-                            } else {
-                                argList2[i] = NULL;
-                            }
-                            // printf("2-argList2[%d]: %s\n", i, argList2[i]);
+                    for(i=1; i<255; i++){
+                        argList[i] = (char*)malloc(sizeof(char) * 255);
+                        token[j] = strtok(NULL, " ");
+                        if(token[j] != NULL){
+                            strcpy(argList[i], token[j]);
                         }
-                        // for(i = 0; i < 255; i++) {
-                        //     printf("3--------argList2[%d]: %s\n", i, argList2[i]);
-                        // }
-                        if(argList2[1] != NULL) {
-                            glob(argList2[1], GLOB_DOOFFS | GLOB_NOCHECK, NULL, &globbuf);
-
-                            for (i = 2; i < 255; i++) {
-                                glob(argList2[i], GLOB_DOOFFS | GLOB_NOCHECK | GLOB_APPEND, NULL, &globbuf);
-                            }
-                        // printf("%s\n", argList[0]);
-                            globbuf.gl_pathv[0] = argList2[0];
-
-                            execvp(globbuf.gl_pathv[0],globbuf.gl_pathv);
-
-                        } else {
-                            execvp(*argList2, argList2);
-                            // printf("[%s]\n",*argList);
+                        else {
+                            argList[i] = NULL;
                         }
-
-                        perror("error:");
-                        exit(0);
                     }
-                } else {
+
+                    if(argList[1] != NULL){
+                        glob_t globbuf;
+                        globbuf.gl_offs = 1;
+                        glob(argList[1], GLOB_DOOFFS | GLOB_NOCHECK, NULL, &globbuf);
+                        for(i=2; i<255; i++){
+                            if(argList[i] != NULL)
+                                glob(argList[i], GLOB_DOOFFS | GLOB_NOCHECK | GLOB_APPEND, NULL, &globbuf);
+                        }
+
+                        globbuf.gl_pathv[0] = argList[0];
+                        execvp(globbuf.gl_pathv[0], globbuf.gl_pathv);
+                    }
+                    else{
+                        execvp(*argList, argList);
+                    }
+
+                    if(errno == ENOENT)
+                        printf("%s:  command not found\n", command[j]);
+                    else
+                        printf("[%s]:  unknown error\n", command[j]);
+                    exit(0);
+                }
+                else{
                     alarm(duration[j]);
                     wait(NULL);
                     // Print Time
                     endTime = times(&cpuTime);
                     printf("<<Process %d>>\n", pids[j][1]);
-                    printf("time elapsed: %.4f\n",(endTime- startTime)/ticks_per_sec);
-                    printf("user time: %.4f\n",cpuTime.tms_cutime/ticks_per_sec);
-                    printf("system time: %.4f\n\n",cpuTime.tms_cstime/ticks_per_sec);
+                    printf("Time Elapsed: %.4f\n", (endTime-startTime)/ticks_per_sec);
+                    printf("user time: %.4f\n", cpuTime.tms_cutime/ticks_per_sec);
+                    printf("system time: %.4f\n", cpuTime.tms_cstime/ticks_per_sec);
+                    printf("\n\n");
                 }
                 exit(0);
-            }
-        }
-        for (j = 0; j < process_number; j++) {
-            // printf("~~~~pids[%d][0]: %d\n", j, pids[j][0]);
-            waitpid(pids[j][0], NULL, 0);
-        }
-    } else {
-        printf("Invalid argument\n");
-    }
 
-    fclose(file);
+            }
+
+            //else{
+              //for (j = 0; j<cnt; j++){
+                //waitpid(pids[j][0], NULL, 0);
+              //}
+            //}
+
+        }
+
+        for (j = 0; j<cnt; j++){
+          waitpid(pids[j][0], NULL, 0);
+        }
+        fclose(fp);
+    }
     return 0;
 }
